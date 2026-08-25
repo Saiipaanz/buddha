@@ -17,23 +17,20 @@
         input[type="number"]::-webkit-inner-spin-button,
         input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     </style>
-    <!-- โหลด Firebase SDK -->
+    <!-- โหลด Firebase SDK แบบง่ายที่สุด -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-        import { getDatabase, ref, onValue, set, update } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+        import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
 
-        // ตั้งค่าโปรเจกต์ Firebase (คุณสามารถใช้โปรเจกต์ทดสอบของผมไปก่อนได้)
-        // **แนะนำ:** หากต้องการใช้งานจริงจัง ให้ไปสร้างโปรเจกต์ฟรีที่ firebase.google.com 
-        // แล้วนำ Config มาใส่แทนตรงนี้ครับ
+        // ตั้งค่าโปรเจกต์ Firebase (ใช้โปรเจกต์ทดสอบของผมไปก่อนได้เลยครับ)
         const firebaseConfig = {
             databaseURL: "https://budget-app-demo-default-rtdb.asia-southeast1.firebasedatabase.app" 
-            // หมายเหตุ: ใช้ databaseURL ทดสอบเพื่อให้เห็นภาพรวม หาก URL นี้หมดอายุ กรุณาบอกผมครับ
         };
 
         const app = initializeApp(firebaseConfig);
         const database = getDatabase(app);
         
-        // ทำให้ฟังก์ชัน Firebase ใช้ได้ใน React
+        // ทำให้ฟังก์ชัน Firebase ใช้ได้ใน React (ผ่าน Global Object)
         window.firebaseDb = database;
         window.firebaseRef = ref;
         window.firebaseOnValue = onValue;
@@ -61,7 +58,6 @@
 
         const INITIAL_BUDGET = 120000;
 
-        // ข้อมูลเริ่มต้นจะถูกใช้ก็ต่อเมื่อฐานข้อมูลบน Cloud ว่างเปล่า
         const INITIAL_ITEMS = [
             { id: 1, name: 'แอร์ 5,000 btu.', qty: 1, price: 0, link: '' },
             { id: 2, name: 'แว๊คคั่ม', qty: 1, price: 0, link: '' },
@@ -92,56 +88,46 @@
         function App() {
             const [items, setItems] = useState(INITIAL_ITEMS);
             const [isLoaded, setIsLoaded] = useState(false);
-            const [syncStatus, setSyncStatus] = useState('connecting'); // 'connecting', 'synced', 'saving'
+            const [syncStatus, setSyncStatus] = useState('connecting'); 
 
-            // --- เชื่อมต่อกับ Firebase Realtime Database ---
+            // เชื่อมต่อและดึงข้อมูลจาก Realtime Database (แบบง่าย)
             useEffect(() => {
-                if (!window.firebaseDb) return;
-                
-                const dbRef = window.firebaseRef(window.firebaseDb, 'shared_budget/items');
-                
-                // ดึงข้อมูลแบบ Real-time (เมื่อมีใครแก้ ข้อมูลตรงนี้จะทำงานทันที)
-                const unsubscribe = window.firebaseOnValue(dbRef, (snapshot) => {
-                    const data = snapshot.val();
-                    if (data) {
-                        setItems(data);
-                        setIsLoaded(true);
-                        setSyncStatus('synced');
-                    } else {
-                        // ถ้าไม่มีข้อมูลใน Cloud เลย ให้เอาข้อมูล INITIAL_ITEMS อัพโหลดขึ้นไปเป็นค่าเริ่มต้น
-                        window.firebaseSet(dbRef, INITIAL_ITEMS)
-                            .then(() => {
-                                setIsLoaded(true);
-                                setSyncStatus('synced');
-                            });
+                // รอให้ Firebase พร้อมทำงานนิดนึง
+                const checkFirebase = setInterval(() => {
+                    if (window.firebaseDb) {
+                        clearInterval(checkFirebase);
+                        const dbRef = window.firebaseRef(window.firebaseDb, 'budget_app_demo/items');
+                        
+                        window.firebaseOnValue(dbRef, (snapshot) => {
+                            const data = snapshot.val();
+                            if (data) {
+                                setItems(data);
+                            } else {
+                                // ถ้าไม่มีข้อมูลบน Cloud ให้เอา INITIAL_ITEMS ขึ้นไปเป็นตั้งต้น
+                                window.firebaseSet(dbRef, INITIAL_ITEMS);
+                            }
+                            setIsLoaded(true);
+                            setSyncStatus('synced');
+                        });
                     }
-                });
+                }, 100);
 
-                return () => {
-                    // ทำความสะอาด Listener เมื่อปิดแอพ
-                    if(typeof unsubscribe === 'function') unsubscribe();
-                };
+                return () => clearInterval(checkFirebase);
             }, []);
 
-            // --- ฟังก์ชันบันทึกขึ้น Cloud แบบรวมศูนย์ ---
-            // ใช้ useCallback เพื่อไม่ให้สร้างฟังก์ชันใหม่ซ้ำๆ และป้องกันการเซฟรัวๆ
+            // ฟังก์ชันสำหรับบันทึกข้อมูลขึ้น Cloud
             const saveToCloud = useCallback((newItems) => {
+                if (!window.firebaseDb) return;
                 setSyncStatus('saving');
-                const dbRef = window.firebaseRef(window.firebaseDb, 'shared_budget/items');
+                const dbRef = window.firebaseRef(window.firebaseDb, 'budget_app_demo/items');
                 window.firebaseSet(dbRef, newItems)
                     .then(() => setSyncStatus('synced'))
-                    .catch(err => {
-                        console.error("เซฟไม่สำเร็จ", err);
-                        setSyncStatus('error');
-                    });
+                    .catch(() => setSyncStatus('error'));
             }, []);
 
-            // ฟังก์ชันแก้ชื่อรายการ
             const updateName = (id, newName) => {
                 const newItems = items.map(item => item.id === id ? { ...item, name: newName } : item);
-                // เราไม่ต้อง setItems ทันทีก็ได้ เพราะพอบันทึกขึ้น Cloud แล้ว onValue จะดึงกลับมาเซ็ตให้เอง
-                // แต่เพื่อความลื่นไหลของผู้พิมพ์ เราเซ็ต Local ไปด้วย
-                setItems(newItems); 
+                setItems(newItems);
                 saveToCloud(newItems);
             };
 
@@ -191,12 +177,7 @@
             const formatMoney = (num) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB', minimumFractionDigits: 2 }).format(num);
             const formatCompactMoney = (num) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num);
 
-            if (!isLoaded) return (
-                <div className="flex flex-col items-center justify-center min-h-screen text-emerald-600 gap-4 bg-[#F8F9F8]">
-                    <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-                    <p className="font-bold text-xl">กำลังเชื่อมต่อฐานข้อมูล...</p>
-                </div>
-            );
+            if (!isLoaded) return <div className="p-10 text-center font-bold text-emerald-600">กำลังเชื่อมต่อฐานข้อมูล...</div>;
 
             return (
                 <div className="pb-20">
@@ -237,10 +218,10 @@
                         <div className="flex justify-between items-end mb-3 px-2">
                             <h2 className="text-sm sm:text-lg font-bold text-stone-700">รายการวัสดุฝึกปฏิบัติ ({items.length} รายการ)</h2>
                             <span className="bg-stone-200/70 text-stone-600 px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-medium flex items-center gap-1.5">
-                                {syncStatus === 'connecting' && <><div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></div> กำลังเชื่อมต่อ...</>}
-                                {syncStatus === 'saving' && <><div className="w-2 h-2 rounded-full bg-blue-500 animate-bounce"></div> กำลังบันทึก...</>}
-                                {syncStatus === 'synced' && <><CheckCircle2 className="w-3 h-3 text-emerald-600" /> เชื่อมต่อแล้ว (Real-time)</>}
-                                {syncStatus === 'error' && <><div className="w-2 h-2 rounded-full bg-red-500"></div> เชื่อมต่อล้มเหลว</>}
+                                {syncStatus === 'connecting' && 'กำลังเชื่อมต่อ...'}
+                                {syncStatus === 'saving' && 'กำลังบันทึก...'}
+                                {syncStatus === 'synced' && <><CheckCircle2 className="w-3 h-3 text-emerald-600" /> อัพเดทแล้ว</>}
+                                {syncStatus === 'error' && 'ข้อผิดพลาด'}
                             </span>
                         </div>
 
